@@ -26,6 +26,7 @@ struct thread_indices {
 
 struct thread_indices thread_indices_array[AMOUNT_OF_WORDS];
 struct timespec t_start, t_stop;
+pthread_mutex_t mutexwrite;
 
 void *find_palindromic(void *);
 void read_file(char *);
@@ -39,9 +40,13 @@ int main(int argc, char *argv[]){
 		exit(1);
 	}
 	NTHREADS = atoi(argv[2]);
-	if(NTHREADS > AMOUNT_OF_WORDS){
+	if(NTHREADS > AMOUNT_OF_WORDS || NTHREADS >= 2147483647){
 		printf("just don't use this many threads, try again\n");
 		exit(2);
+	}
+	if(NTHREADS <= 0){
+		printf("need at least 1 thread\n");
+		exit(3);
 	}
 	printf("amount of threads: %d\n", NTHREADS);
 	read_file("british-english");
@@ -50,15 +55,15 @@ int main(int argc, char *argv[]){
 	write_file = fopen("results.txt", "w");
 
 	pthread_t thread_id[NTHREADS];
+	pthread_mutex_init(&mutexwrite, NULL);
 	struct timeval start;
 	struct timeval stop;
-	printf("starting\n");
 	clock_gettime(CLOCK_MONOTONIC, &t_start);	
 	for(int i = 0; i < NTHREADS; i++){
 		if(i == 0){
 			thread_indices_array[i].start = i * thread_loop_limit;
 		} else {
-			thread_indices_array[i].start = i * thread_loop_limit + (AMOUNT_OF_WORDS % NTHREADS) + 1;
+			thread_indices_array[i].start = i * thread_loop_limit + (AMOUNT_OF_WORDS % NTHREADS);
 		}
 		if(i != NTHREADS){
 			thread_indices_array[i].end = (i + 1) * thread_loop_limit;
@@ -71,12 +76,15 @@ int main(int argc, char *argv[]){
 	for(int j = 0; j < NTHREADS; j++){
 		pthread_join(thread_id[j], NULL);
 	}
+	for(int j = 0; j < NTHREADS; j++){
+		fprintf(write_file, "A total of %d palindromics found by thread %d\n", thread_indices_array[j].found, thread_indices_array[j].t_id);
+	}
 	clock_gettime(CLOCK_MONOTONIC, &t_stop);
-	printf("stopped\n");
 	long total_time = nano_seconds(&t_start, &t_stop);
 	printf("total time: %0.2f seconds for %d threads\n", (double)total_time/NANO, NTHREADS);
-	fprintf(write_file, "total time: %0.2f seconds for %d threads\n", (double)total_time / NANO, NTHREADS);
+	fprintf(write_file, "total time: %0.2f seconds for %d threads to find %d palindromics\n", (double)total_time / NANO, NTHREADS, amount_of_palindromics);
 	fclose(write_file);
+	pthread_mutex_destroy(&mutexwrite);
 	return 0;
 }
 
@@ -126,7 +134,6 @@ void *find_palindromic(void *threadarg){
 	my_limits = (struct thread_indices *) threadarg;
 	int start = my_limits->start;
 	int end = my_limits->end;
-	printf("start: %d end: %d pid: %d\n", start, end, my_limits->t_id);
 	for(; start < end; start++){
 		char word[20];
 		strcpy(word, &input_buffer[start * BUFFER_INDEX_SIZE]);
@@ -142,9 +149,12 @@ void *find_palindromic(void *threadarg){
 		}
 		int res = lookup(word);
 		if(res == 0){
+			pthread_mutex_lock(&mutexwrite);
+			amount_of_palindromics++;
+			fprintf(write_file, "%s\n", word);
+			pthread_mutex_unlock(&mutexwrite);
 			my_limits->found++;
 		}
 	}
 	printf("A total of %d palindromics found by %d\n", my_limits->found, my_limits->t_id);
-	fprintf(write_file, "A total of %d palindromics found by %d\n", my_limits->found, my_limits->t_id);
 }
