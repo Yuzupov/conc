@@ -24,7 +24,11 @@ struct thread_indices {
 	int found;
 };
 
-struct thread_indices thread_indices_array[AMOUNT_OF_WORDS];
+struct saved_indices_s {
+	int found_indices[AMOUNT_OF_WORDS];
+	int index;
+};
+
 struct timespec t_start, t_stop;
 pthread_mutex_t mutexwrite;
 
@@ -33,6 +37,8 @@ void read_file(char *);
 void print_read_file();
 int lookup(char *);
 long nano_seconds(struct timespec*, struct timespec*);
+
+struct saved_indices_s saved_indices;
 
 int main(int argc, char *argv[]){
 	if(argc > 3 || argc <= 2 || strcmp(argv[1], "-W") != 0){
@@ -50,10 +56,12 @@ int main(int argc, char *argv[]){
 	}
 	printf("amount of threads: %d\n", NTHREADS);
 	read_file("british-english");
+	struct thread_indices thread_indices_array[NTHREADS];
 	struct thread_indices *indices;
 	int thread_loop_limit = AMOUNT_OF_WORDS / NTHREADS;
 	write_file = fopen("results.txt", "w");
-
+	int found_words_indices[AMOUNT_OF_WORDS];
+	saved_indices.index = 0;
 	pthread_t thread_id[NTHREADS];
 	pthread_mutex_init(&mutexwrite, NULL);
 	struct timeval start;
@@ -79,6 +87,12 @@ int main(int argc, char *argv[]){
 	for(int j = 0; j < NTHREADS; j++){
 		fprintf(write_file, "A total of %d palindromics found by thread %d\n", thread_indices_array[j].found, thread_indices_array[j].t_id);
 	}
+	for(int i = 0; i < saved_indices.index; i++){
+		char word[20]; 
+		strcpy(word, &input_buffer[saved_indices.found_indices[i] * BUFFER_INDEX_SIZE]);
+		printf("index in the struct: %d\n", saved_indices.index);
+		fprintf(write_file, "%s\n", word);
+	}
 	clock_gettime(CLOCK_MONOTONIC, &t_stop);
 	long total_time = nano_seconds(&t_start, &t_stop);
 	printf("total time: %0.2f seconds for %d threads\n", (double)total_time/NANO, NTHREADS);
@@ -100,7 +114,7 @@ int lookup(char *word){
 	}
 	for(int i = 0; i < AMOUNT_OF_WORDS; i++){
 		char *temp = &input_buffer[i * BUFFER_INDEX_SIZE];
-		if(strcmp(word, temp) == 0){
+		if(strcasecmp(word, temp) == 0){
 			return 0;	
 		}
 	}
@@ -151,7 +165,8 @@ void *find_palindromic(void *threadarg){
 		if(res == 0){
 			pthread_mutex_lock(&mutexwrite);
 			amount_of_palindromics++;
-			fprintf(write_file, "%s\n", word);
+			saved_indices.found_indices[saved_indices.index] = start;
+			saved_indices.index++;
 			pthread_mutex_unlock(&mutexwrite);
 			my_limits->found++;
 		}
